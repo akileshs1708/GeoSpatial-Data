@@ -1,6 +1,7 @@
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
+from folium.plugins import MarkerCluster
 from queries import *
 from db_connect import districts
 
@@ -14,6 +15,9 @@ if "clicked" not in st.session_state:
     st.session_state.clicked = None
 if "selected_district" not in st.session_state:
     st.session_state.selected_district = None
+if "district_data" not in st.session_state:
+    st.session_state.district_data = None
+
 
 # ---------------- Helpers ----------------
 def base_map():
@@ -30,11 +34,16 @@ def base_map():
         ).add_to(m)
     return m
 
+
 def show_map(m):
-    # Store the map in session state
     st.session_state.map = m
-    # Display the map
-    return st_folium(st.session_state.map, width=1100, height=650, key=f"map_{st.session_state.selected_district}")
+    return st_folium(
+        st.session_state.map,
+        width=1100,
+        height=650,
+        key=f"map_{st.session_state.selected_district}"
+    )
+
 
 # ---------------- Sidebar Menu ----------------
 menu = st.sidebar.selectbox("Menu", [
@@ -45,62 +54,66 @@ menu = st.sidebar.selectbox("Menu", [
     "District Statistics"
 ])
 
+
 # ---------------- HOME ----------------
 if menu == "Home - All Restaurants":
     m = base_map()
+
+    marker_cluster = MarkerCluster().add_to(m)
+
     for r in get_all(800):
         lon, lat = r["location"]["coordinates"]
-        folium.Marker([lat, lon], popup=r["name"]).add_to(m)
+        folium.Marker(
+            [lat, lon],
+            popup=r["name"],
+            tooltip=f"{r['name']} ({lat:.4f}, {lon:.4f})"
+        ).add_to(marker_cluster)
+
     show_map(m)
+
 
 # ---------------- BY DISTRICT ----------------
 elif menu == "View Restaurants by District":
     dname = st.selectbox("Choose District", list_districts(), key="district_selector")
-    
-    # Use a unique key for the button to prevent re-rendering issues
-    if st.button("Show Restaurants", key="show_district_btn"):
+
+    if st.button("Show Restaurants"):
         st.session_state.selected_district = dname
-        data = inside_district(dname)
+        st.session_state.district_data = inside_district(dname)
+
+    if st.session_state.district_data and st.session_state.selected_district == dname:
+        data = st.session_state.district_data
         m = base_map()
-        
-        # Highlight the selected district
+
+        # highlight district
         for d in districts.find():
             if d["district"] == dname:
                 folium.GeoJson(
                     d["geometry"],
                     tooltip=d["district"],
                     style_function=lambda x: {
-                        "fillColor": "#ff000020",  # Light red fill for selected district
+                        "fillColor": "#ff000020",
                         "color": "red",
                         "weight": 3
                     }
                 ).add_to(m)
-            else:
-                folium.GeoJson(
-                    d["geometry"],
-                    tooltip=d["district"],
-                    style_function=lambda x: {
-                        "fillColor": "#00000000",
-                        "color": "blue",
-                        "weight": 1
-                    }
-                ).add_to(m)
-        
-        # Add markers for restaurants
+
+        # add markers with clustering + tooltip
+        marker_cluster = MarkerCluster().add_to(m)
+
         for r in data:
             lon, lat = r["location"]["coordinates"]
-            folium.Marker([lat, lon], popup=r["name"]).add_to(m)
-        
-        st.session_state.map = m
+            folium.Marker(
+                [lat, lon],
+                popup=r["name"],
+                tooltip=f"{r['name']} ({lat:.4f}, {lon:.4f})"
+            ).add_to(marker_cluster)
+
         st.success(f"{len(data)} restaurants in {dname}")
-    
-    # Always show the map - either the one from session state or create a new one
-    if st.session_state.map and st.session_state.selected_district == dname:
-        # Show the stored map if it exists and matches the selected district
-        show_map(st.session_state.map)
+        show_map(m)
+
     else:
-        # Otherwise show the base map
         show_map(base_map())
+
 
 # ---------------- NEAREST ----------------
 elif menu == "Nearest Restaurants (Click Map)":
@@ -118,15 +131,25 @@ elif menu == "Nearest Restaurants (Click Map)":
         results = nearest(lon, lat, 5000)
 
         m = folium.Map(location=[lat, lon], zoom_start=13)
-        folium.Marker([lat, lon],
-                      icon=folium.Icon(color="red"),
-                      popup="You").add_to(m)
+
+        folium.Marker(
+            [lat, lon],
+            icon=folium.Icon(color="red"),
+            popup="You"
+        ).add_to(m)
+
+        marker_cluster = MarkerCluster().add_to(m)
 
         for r in results:
             rlon, rlat = r["location"]["coordinates"]
-            folium.Marker([rlat, rlon], popup=r["name"]).add_to(m)
+            folium.Marker(
+                [rlat, rlon],
+                popup=r["name"],
+                tooltip=f"{r['name']} ({rlat:.4f}, {rlon:.4f})"
+            ).add_to(marker_cluster)
 
         show_map(m)
+
 
 # ---------------- ADD RESTAURANT ----------------
 elif menu == "Add New Restaurant":
@@ -145,6 +168,7 @@ elif menu == "Add New Restaurant":
         if st.button("Add"):
             add_restaurant(name, lon, lat)
             st.success("Added successfully!")
+
 
 # ---------------- STATS ----------------
 elif menu == "District Statistics":

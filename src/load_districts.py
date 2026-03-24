@@ -2,9 +2,9 @@ import json
 from db_connect import districts
 
 with open("../data/tamil_nadu_geo.json") as f:
-    districts = json.load(f)
+    geo_data = json.load(f)
 
-for feature in districts["features"]:
+for feature in geo_data["features"]:
     districts.insert_one({
         "district": feature["properties"]["district"],
         "geometry": feature["geometry"]
